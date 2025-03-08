@@ -7,7 +7,7 @@ import nltk
 from bs4 import BeautifulSoup
 from nltk.probability import FreqDist
 from nltk.tokenize import word_tokenize
-
+import io
 
 
 
@@ -23,6 +23,12 @@ intents.message_content = True
 bot = commands.Bot(command_prefix='/', intents=intents)
 
 user_data = {}
+
+def get_duck_image_url():    
+    url = 'https://random-d.uk/api/random'
+    res = requests.get(url)
+    data = res.json()
+    return data['url']
 
 questions = [
     "¿Cuánta electricidad usas al mes (en kWh)?",
@@ -92,34 +98,55 @@ async def on_ready():
 async def hello(ctx):
     await ctx.send(f'Hola, soy un bot {bot.user}!')
 
+@bot.command()
+async def helpme(ctx):
+    await ctx.send("¡Hola! Soy un bot que te ayudará a reducir tu huella de carbono. Puedes usar los siguientes comandos para interactuar conmigo:\n"
+                   "/noticia: Resumir una noticia de un artículo en línea.\n"
+                   "/recomendacion: Recibir una recomendación aleatoria para reducir tu huella de carbono.\n"
+                    "/reducir:  Calcular tu huella de carbono y recibir recomendaciones para reducirla.\n"
+                    "/huella: Calcular tu huella de carbono y recibir recomendaciones para reducirla.\n")
+    
+
 
 
 @bot.command()
-async def news(ctx, url: str):
-    response = requests.get(url)
-    soup = BeautifulSoup(response.content, 'html.parser')
+async def noticia(ctx, url: str = "a"):
+    if url == "a":
+        await ctx.send("Por favor, proporciona la URL de un artículo en línea.")
+    else:
+        response = requests.get(url)
+        soup = BeautifulSoup(response.content, 'html.parser')
 
-    paragraphs = soup.find_all('p')
+        paragraphs = soup.find_all('p')
 
-    text = ' '.join([para.get_text() for para in paragraphs])
-    sentences = nltk.tokenize.sent_tokenize(text, language='spanish')
+        # Define keywords to filter out unwanted paragraphs
+        unwanted_keywords = ["cookies", "privacidad", "terminos", "politicas", "anuncios", "publicidad", "relacionadas", "preferencias"]
 
-    words = word_tokenize(text, language = 'spanish')
-    fdist = FreqDist(words)
+        # Filter out paragraphs containing unwanted keywords
+        filtered_paragraphs = [
+            para for para in paragraphs
+            if not any(keyword in para.get_text().lower() for keyword in unwanted_keywords)
+        ]
 
-    common_words = [word for word, freq in fdist.most_common(50)]
+        text = ' '.join([para.get_text() for para in filtered_paragraphs])
+        sentences = nltk.tokenize.sent_tokenize(text, language='spanish')
 
-    summary_sentences = [sentence for sentence in sentences if any(word in sentence for word in common_words)]
-    summary = ' '.join(summary_sentences[:5])
+        words = word_tokenize(text, language='spanish')
+        fdist = FreqDist(words)
 
-    print(20 * "-")
-    print(sentences)
-    print(20 * "-")
-    await ctx.send(f"Summary: {summary}")
+        common_words = [word for word, freq in fdist.most_common(50)]
+
+        summary_sentences = [sentence for sentence in sentences if any(word in sentence for word in common_words)]
+        summary = ' '.join(summary_sentences[:5])
+
+        print(20 * "-")
+        print(sentences)
+        print(20 * "-")
+        await ctx.send(f"Resumen: {summary}")
 
 
 @bot.command()
-async def recomendation(ctx):
+async def recomendacion(ctx):
 
     recomendations = [
         "Reduce tu consumo de energía apagando luces y aparatos electrónicos cuando no los uses.",
@@ -137,9 +164,9 @@ async def recomendation(ctx):
     await ctx.send(f"Recomendación: {random_recomendation}", file=discord.File(image))
 
 @bot.command()
-async def footprint(ctx, electricity: int = None, kilometers: int = None, flights: int = None, waste: int = None, local_products: int = None):
+async def reducir(ctx, electricity: int = None, kilometers: int = None, flights: int = None, waste: int = None, local_products: int = None):
     if None in (electricity, kilometers, flights, waste, local_products):
-        await ctx.send("You didn't send the proper data, This is the order of the information you need to provide: electricity (kWh), kilometers (km), flights (per year), waste (kg), local products (per month).")
+        await ctx.send("No enviaste la información correcta, Este es el orden de la información que tienes que enviar: electricidad (kWh), kilómetros (km), vuelos (por año), cantidad de desechos (kg), productos locales (por mes).")
     else:
         user_data[ctx.author.id] = {
             'electricity': electricity,
@@ -149,18 +176,54 @@ async def footprint(ctx, electricity: int = None, kilometers: int = None, flight
             'local_products': local_products
         }
         total_footprint = calculate_carbon_footprint(electricity, kilometers, flights, waste, local_products)
-        await ctx.send(f"Thank you for providing all the information. Here is your data:")
+        await ctx.send(f"Gracias por facilitarnos los datos. Aquí están tus resultados:")
         for key, value in user_data[ctx.author.id].items():
             await ctx.send(f"{key.capitalize()}: {value}")
-        await ctx.send(f"Your total carbon footprint is: {total_footprint:.2f} kg CO2 per month.")
+        await ctx.send(f"Tu huella de carbono total es de: {total_footprint:.2f} kg de CO2 por mes.")
         recommendations = get_recommendations(total_footprint)
         for recommendation in recommendations:
             await ctx.send(recommendation)
         del user_data[ctx.author.id]
 
 
-            
+
+@bot.command()
+async def huella(ctx, electricity: int = None, kilometers: int = None, flights: int = None, waste: int = None, local_products: int = None):
+    if None in (electricity, kilometers, flights, waste, local_products):
+        await ctx.send("No enviaste la información correcta, Este es el orden de la información que tienes que enviar: electricidad (kWh), kilómetros (km), vuelos (por año), cantidad de desechos (kg), productos locales (por mes).")
+    else:
+        user_data[ctx.author.id] = {
+            'electricity': electricity,
+            'kilometers': kilometers,
+            'flights': flights,
+            'waste': waste,
+            'local_products': local_products
+        }
+        total_footprint = calculate_carbon_footprint(electricity, kilometers, flights, waste, local_products)
+        await ctx.send(f"Gracias por facilitarnos los datos. Aquí están tus resultados:")
+        for key, value in user_data[ctx.author.id].items():
+            await ctx.send(f"{key.capitalize()}: {value}")
+        await ctx.send(f"Tu huella de carbono total es de: {total_footprint:.2f} kg de CO2 por mes.")
         
+        high_threshold = 1000  # Example threshold for high carbon footprint
+        low_threshold = 500  # Example threshold for low carbon footprint
+
+        if total_footprint > high_threshold:
+            await ctx.send("Tu huella de carbono es muy alta.")
+        elif total_footprint > low_threshold:
+            await ctx.send("Tu huella de carbono es promedio.")
+        else:
+            await ctx.send("Tu huella de carbono es baja.")
+        
+        del user_data[ctx.author.id]
+        
+@bot.command()
+async def photo(ctx):
+    image_url = get_duck_image_url()
+    await ctx.send(image_url)
+   
+
+    
     
     
     
